@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
 import quranData from "@/public/data/quran.json";
 
@@ -69,34 +69,38 @@ export async function POST(req: Request) {
     const last = messages[messages.length - 1]?.content || "";
     const ctx = searchQuran(last);
 
-    const history = messages.slice(-10).map((m: any, i: number, a: any[]) => ({
+    // Build contents for Gemini
+    const contents = messages.slice(-10).map((m: any, i: number, a: any[]) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: i === a.length - 1 && m.role === "user" && ctx ? `${m.content}\n\n[QURAN_CONTEXT]\n${ctx}` : m.content }],
     }));
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash-001",
-      systemInstruction: SYSTEM_PROMPT,
-      generationConfig: { maxOutputTokens: 4096, temperature: 0.3 },
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const response = await ai.models.generateContentStream({
+      model: "gemini-2.5-flash",
+      contents: contents,
+      config: {
+        maxOutputTokens: 4096,
+        temperature: 0.3,
+        systemInstruction: SYSTEM_PROMPT,
+      },
     });
 
-    const chat = model.startChat({ history: history.slice(0, -1) });
-    const result = await chat.sendMessageStream(history[history.length - 1].parts[0].text);
     const enc = new TextEncoder();
 
     const stream = new ReadableStream({
       async start(ctrl) {
         try {
-          for await (const chunk of result.stream) {
-            const t = chunk.text();
+          for await (const chunk of response) {
+            const t = chunk.text;
             if (t) ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ text: t })}\n\n`));
           }
           ctrl.enqueue(enc.encode("data: [DONE]\n\n"));
           ctrl.close();
         } catch (e: any) {
           console.error("Stream error:", e);
-          ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ text: "\n\nعذراً، حدث خطأ: " + (e.message || "unknown error") })}\n\n`));
+          ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ text: "\n\nخطأ: " + (e.message || "unknown") })}\n\n`));
           ctrl.enqueue(enc.encode("data: [DONE]\n\n"));
           ctrl.close();
         }
