@@ -25,7 +25,10 @@ export function useChat() {
         body: JSON.stringify({ messages: updated }),
         signal: abortRef.current.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No reader");
       const decoder = new TextDecoder();
@@ -45,7 +48,7 @@ export function useChat() {
       setMessages(prev => [...prev, { role: "assistant", content: full }]);
     } catch (e: any) {
       if (e.name !== "AbortError")
-        setMessages(prev => [...prev, { role: "assistant", content: "عذراً، حدث خطأ. يرجى المحاولة مرة أخرى." }]);
+        setMessages(prev => [...prev, { role: "assistant", content: "خطأ: " + (e.message || "حدث خطأ غير معروف") }]);
     } finally { setIsLoading(false); setStreamingContent(""); }
   }, [messages, isLoading]);
 

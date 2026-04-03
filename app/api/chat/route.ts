@@ -60,6 +60,10 @@ function fmt(s: Surah, v: Verse) {
 }
 
 export async function POST(req: Request) {
+  if (!process.env.GEMINI_API_KEY) {
+    return new Response(JSON.stringify({ error: "GEMINI_API_KEY is not set" }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+
   try {
     const { messages } = await req.json();
     const last = messages[messages.length - 1]?.content || "";
@@ -70,7 +74,7 @@ export async function POST(req: Request) {
       parts: [{ text: i === a.length - 1 && m.role === "user" && ctx ? `${m.content}\n\n[QURAN_CONTEXT]\n${ctx}` : m.content }],
     }));
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.0-flash",
       systemInstruction: SYSTEM_PROMPT,
@@ -90,13 +94,18 @@ export async function POST(req: Request) {
           }
           ctrl.enqueue(enc.encode("data: [DONE]\n\n"));
           ctrl.close();
-        } catch (e) { console.error(e); ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ error: "خطأ" })}\n\n`)); ctrl.close(); }
+        } catch (e: any) {
+          console.error("Stream error:", e);
+          ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ text: "\n\nعذراً، حدث خطأ: " + (e.message || "unknown error") })}\n\n`));
+          ctrl.enqueue(enc.encode("data: [DONE]\n\n"));
+          ctrl.close();
+        }
       },
     });
 
     return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
-  } catch (e) {
-    console.error(e);
-    return new Response(JSON.stringify({ error: "فشل" }), { status: 500, headers: { "Content-Type": "application/json" } });
+  } catch (e: any) {
+    console.error("API error:", e);
+    return new Response(JSON.stringify({ error: e.message || "Unknown error" }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 }
